@@ -3,4 +3,7 @@ builder = "nixpacks"
 
 [build.nixpacks]
 providers = ["node"]
+buildCommands = ["cd backend && npm install"]
+startCommand = "node backend/src/server.js"
+
 
