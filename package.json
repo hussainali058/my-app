@@ -1,0 +1,13 @@
+{
+  "name": "app-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo with backend and frontend",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "npm run dev --prefix backend",
+    "install-all": "npm install --prefix backend && npm install --prefix frontend"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -1,14 +1,6 @@
 [build]
 builder = "nixpacks"
 
-[deploy]
-restartPolicyMaxRetries = 5
+[build.nixpacks]
+providers = ["node"]
 
-[[services]]
-name = "backend"
-processingType = "web"
-startCommand = "node src/server.js"
-
-[[services.directories]]
-source = "backend"
-destination = "/app"

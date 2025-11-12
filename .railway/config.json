@@ -1,6 +1,8 @@
 {
   "schemaVersion": 0,
   "build": {
-    "builder": "nixpacks"
+    "builder": "nixpacks",
+    "buildCommand": "cd backend && npm install",
+    "startCommand": "node backend/src/server.js"
   }
 }
