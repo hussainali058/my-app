@@ -1,90 +1,131 @@
-import pkg from 'pg';
-import dotenv from 'dotenv';
+import pg from 'pg';
+import sqlite3 from 'sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const { Pool } = pkg;
+// Check if we're using PostgreSQL or SQLite
+const usePostgres = !!process.env.DATABASE_URL;
 
-console.log('DATABASE_URL present:', !!process.env.DATABASE_URL);
+let db;
 
-// Parse connection string with proper handling
-const connectionConfig = process.env.DATABASE_URL 
-  ? {
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    }
-  : null;
-
-let pool = null;
-
-if (connectionConfig) {
-  pool = new Pool(connectionConfig);
-
-  pool.on('error', (err) => {
-    console.error('❌ Pool error:', err.message);
+if (usePostgres) {
+  // PostgreSQL Connection
+  const pool = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   });
 
-  pool.on('connect', () => {
-    console.log('✅ New pool connection created');
-  });
-
-  // Test connection
-  pool.connect((err, client, release) => {
-    if (err) {
-      console.error('❌ Pool connection test failed:', err.message);
-    } else {
-      console.log('✅ Pool connection test successful');
-      release();
-    }
-  });
+  db = {
+    prepare: (sql) => ({
+      run: (...params) => {
+        return new Promise((resolve, reject) => {
+          pool.query(sql, params, (err, result) => {
+            if (err) reject(err);
+            else resolve({ lastID: result.rows[0]?.id, changes: result.rowCount });
+          });
+        });
+      },
+      all: (...params) => {
+        return new Promise((resolve, reject) => {
+          pool.query(sql, params, (err, result) => {
+            if (err) reject(err);
+            else resolve(result.rows || []);
+          });
+        });
+      },
+      get: (...params) => {
+        return new Promise((resolve, reject) => {
+          pool.query(sql, params, (err, result) => {
+            if (err) reject(err);
+            else resolve(result.rows[0]);
+          });
+        });
+      }
+    })
+  };
 } else {
-  console.warn('⚠️  DATABASE_URL not configured - database operations will fail');
+  // SQLite Connection (Local Development)
+  const dataDir = path.join(__dirname, '..', 'data');
+  const dbPath = path.join(dataDir, 'punjab-university.db');
+
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  const sqlite3Db = new sqlite3.Database(dbPath);
+
+  db = {
+    prepare: (sql) => ({
+      run: (...params) => {
+        return new Promise((resolve, reject) => {
+          sqlite3Db.run(sql, params, function(err) {
+            if (err) reject(err);
+            else resolve({ lastID: this.lastID, changes: this.changes });
+          });
+        });
+      },
+      all: (...params) => {
+        return new Promise((resolve, reject) => {
+          sqlite3Db.all(sql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows || []);
+          });
+        });
+      },
+      get: (...params) => {
+        return new Promise((resolve, reject) => {
+          sqlite3Db.get(sql, params, (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+          });
+        });
+      }
+    })
+  };
 }
 
-// Query wrapper for compatibility
-const db = {
-  prepare: (sql) => ({
-    run: async (...params) => {
-      if (!pool) throw new Error('Database not configured - DATABASE_URL is missing');
-      try {
-        const result = await pool.query(sql, params);
-        return { 
-          lastID: result.rows[0]?.id || null, 
-          changes: result.rowCount,
-          rows: result.rows
-        };
-      } catch (err) {
-        console.error('❌ Query error:', err.message);
-        console.error('SQL:', sql);
-        console.error('Params:', params);
-        throw err;
-      }
-    },
-    all: async (...params) => {
-      if (!pool) throw new Error('Database not configured - DATABASE_URL is missing');
-      try {
-        const result = await pool.query(sql, params);
-        return result.rows || [];
-      } catch (err) {
-        console.error('❌ Query error:', err.message);
-        throw err;
-      }
-    },
-    get: async (...params) => {
-      if (!pool) throw new Error('Database not configured - DATABASE_URL is missing');
-      try {
-        const result = await pool.query(sql, params);
-        return result.rows[0] || null;
-      } catch (err) {
-        console.error('❌ Query error:', err.message);
-        throw err;
-      }
-    }
-  })
-};
+// Initialize tables
+async function initializeTables() {
+  try {
+    console.log(`Initializing database (${usePostgres ? 'PostgreSQL' : 'SQLite'})...`);
+    
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id ${usePostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS students (
+        id ${usePostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+        user_id INTEGER NOT NULL,
+        full_name TEXT NOT NULL,
+        batch_number TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        department TEXT,
+        society_affiliation TEXT,
+        interests TEXT,
+        emergency_contact TEXT,
+        dietary_preferences TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `).run();
+    
+    console.log('✅ Database tables initialized successfully');
+  } catch (err) {
+    console.error('❌ Error initializing tables:', err);
+  }
+}
+
+initializeTables();
 
 export default db;
 
