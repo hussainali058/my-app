@@ -1,81 +1,57 @@
-import sqlite3 from 'sqlite3';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import pkg from 'pg';
+import dotenv from 'dotenv';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+dotenv.config();
 
-const dataDir = path.join(__dirname, '..', 'data');
-const dbPath = path.join(dataDir, 'punjab-university.db');
+const { Pool } = pkg;
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
+// Use DATABASE_URL from environment or fallback to SQLite-like setup
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : undefined,
+});
 
-const sqlite3Db = new sqlite3.Database(dbPath);
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
 
-// Wrapper object to maintain compatibility
+// Query wrapper for compatibility
 const db = {
   prepare: (sql) => ({
-    run: (...params) => {
-      return new Promise((resolve, reject) => {
-        sqlite3Db.run(sql, params, function(err) {
-          if (err) reject(err);
-          else resolve({ lastID: this.lastID, changes: this.changes });
-        });
-      });
+    run: async (...params) => {
+      try {
+        const result = await pool.query(sql, params);
+        return { 
+          lastID: result.rows[0]?.id || null, 
+          changes: result.rowCount 
+        };
+      } catch (err) {
+        throw err;
+      }
     },
-    all: (...params) => {
-      return new Promise((resolve, reject) => {
-        sqlite3Db.all(sql, params, (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows || []);
-        });
-      });
+    all: async (...params) => {
+      try {
+        const result = await pool.query(sql, params);
+        return result.rows || [];
+      } catch (err) {
+        throw err;
+      }
     },
-    get: (...params) => {
-      return new Promise((resolve, reject) => {
-        sqlite3Db.get(sql, params, (err, row) => {
-          if (err) reject(err);
-          else resolve(row);
-        });
-      });
+    get: async (...params) => {
+      try {
+        const result = await pool.query(sql, params);
+        return result.rows[0] || null;
+      } catch (err) {
+        throw err;
+      }
     }
   })
 };
 
-// Initialize tables
+// Initialize tables only if DATABASE_URL is set (production with Supabase)
 async function initializeTables() {
-  try {
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `).run();
-
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        full_name TEXT NOT NULL,
-        batch_number TEXT NOT NULL,
-        phone_number TEXT NOT NULL,
-        department TEXT,
-        society_affiliation TEXT,
-        interests TEXT,
-        emergency_contact TEXT,
-        dietary_preferences TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-      )
-    `).run();
-  } catch (err) {
-    console.error('Error initializing tables:', err);
-  }
+  // Tables are already created in Supabase, no need to create them here
+  console.log('Database connection ready');
 }
 
 initializeTables();
