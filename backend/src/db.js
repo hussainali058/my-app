@@ -1,116 +1,57 @@
-import pkg from 'pg';
-import dotenv from 'dotenv';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const dataDir = path.join(__dirname, '..', 'data');
+const dbPath = path.join(dataDir, 'punjab-university.db');
 
-let db;
-
-if (NODE_ENV === 'production') {
-  // Production: PostgreSQL
-  const { Pool } = pkg;
-
-  db = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-  });
-
-  db.on('error', (err) => {
-    console.error('Unexpected error on idle client', err);
-  });
-
-  console.log('Using PostgreSQL database');
-} else {
-  // Development: SQLite
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-
-  const dataDir = path.join(__dirname, '..', 'data');
-  const dbPath = path.join(dataDir, 'punjab-university.db');
-
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-
-  console.log('Using SQLite database');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// Initialize database tables
-async function initializeDatabase() {
-  try {
-    if (NODE_ENV === 'production') {
-      // PostgreSQL initialization
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS users (
-          id SERIAL PRIMARY KEY,
-          email TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
+const db = new Database(dbPath);
 
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS students (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL,
-          full_name TEXT NOT NULL,
-          batch_number TEXT NOT NULL,
-          phone_number TEXT NOT NULL,
-          department TEXT,
-          society_affiliation TEXT,
-          interests TEXT,
-          emergency_contact TEXT,
-          dietary_preferences TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-      `);
-    } else {
-      // SQLite initialization
-      db.prepare(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          email TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-      `).run();
+db.pragma('journal_mode = WAL');
 
-      db.prepare(`
-        CREATE TABLE IF NOT EXISTS students (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          full_name TEXT NOT NULL,
-          batch_number TEXT NOT NULL,
-          phone_number TEXT NOT NULL,
-          department TEXT,
-          society_affiliation TEXT,
-          interests TEXT,
-          emergency_contact TEXT,
-          dietary_preferences TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-      `).run();
-    }
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`).run();
 
-    console.log('Database tables initialized successfully');
-  } catch (err) {
-    console.error('Error initializing database:', err);
+// Migrate existing data from password_hash to password column if needed
+try {
+  const hasPasswordHashColumn = db.prepare("PRAGMA table_info(users)").all().some(col => col.name === 'password_hash');
+  if (hasPasswordHashColumn && !db.prepare("PRAGMA table_info(users)").all().some(col => col.name === 'password')) {
+    db.prepare('ALTER TABLE users RENAME COLUMN password_hash TO password').run();
   }
+} catch (err) {
+  // Column might not exist, which is fine
 }
 
-// Initialize tables on startup
-initializeDatabase();
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS students (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    full_name TEXT NOT NULL,
+    batch_number TEXT NOT NULL,
+    phone_number TEXT NOT NULL,
+    department TEXT,
+    society_affiliation TEXT,
+    interests TEXT,
+    emergency_contact TEXT,
+    dietary_preferences TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )
+`).run();
 
 export default db;
-export { NODE_ENV };
 
