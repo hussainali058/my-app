@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import sqlite3 from 'sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,45 +13,72 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const db = new Database(dbPath);
+const sqlite3Db = new sqlite3.Database(dbPath);
 
-db.pragma('journal_mode = WAL');
+// Wrapper object to maintain compatibility
+const db = {
+  prepare: (sql) => ({
+    run: (...params) => {
+      return new Promise((resolve, reject) => {
+        sqlite3Db.run(sql, params, function(err) {
+          if (err) reject(err);
+          else resolve({ lastID: this.lastID, changes: this.changes });
+        });
+      });
+    },
+    all: (...params) => {
+      return new Promise((resolve, reject) => {
+        sqlite3Db.all(sql, params, (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows || []);
+        });
+      });
+    },
+    get: (...params) => {
+      return new Promise((resolve, reject) => {
+        sqlite3Db.get(sql, params, (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+    }
+  })
+};
 
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-  )
-`).run();
+// Initialize tables
+async function initializeTables() {
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
 
-// Migrate existing data from password_hash to password column if needed
-try {
-  const hasPasswordHashColumn = db.prepare("PRAGMA table_info(users)").all().some(col => col.name === 'password_hash');
-  if (hasPasswordHashColumn && !db.prepare("PRAGMA table_info(users)").all().some(col => col.name === 'password')) {
-    db.prepare('ALTER TABLE users RENAME COLUMN password_hash TO password').run();
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        full_name TEXT NOT NULL,
+        batch_number TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        department TEXT,
+        society_affiliation TEXT,
+        interests TEXT,
+        emergency_contact TEXT,
+        dietary_preferences TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `).run();
+  } catch (err) {
+    console.error('Error initializing tables:', err);
   }
-} catch (err) {
-  // Column might not exist, which is fine
 }
 
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS students (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    full_name TEXT NOT NULL,
-    batch_number TEXT NOT NULL,
-    phone_number TEXT NOT NULL,
-    department TEXT,
-    society_affiliation TEXT,
-    interests TEXT,
-    emergency_contact TEXT,
-    dietary_preferences TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  )
-`).run();
+initializeTables();
 
 export default db;
 
