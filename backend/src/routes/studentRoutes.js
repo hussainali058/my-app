@@ -23,6 +23,7 @@ router.post('/', authenticate, async (req, res) => {
       });
     }
 
+    // PostgreSQL uses $1, $2, etc. instead of ?
     const stmt = db.prepare(`
       INSERT INTO students (
         user_id,
@@ -34,7 +35,8 @@ router.post('/', authenticate, async (req, res) => {
         interests,
         emergency_contact,
         dietary_preferences
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
     `);
 
     const result = await stmt.run(
@@ -51,21 +53,21 @@ router.post('/', authenticate, async (req, res) => {
 
     return res.status(201).json({
       message: 'Thank you! Your Cultural Day registration is received.',
-      submissionId: result.lastID,
+      submissionId: result.lastID || result.rows?.[0]?.id,
     });
   } catch (err) {
     console.error('Student registration error:', err);
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 
 router.get('/', authenticate, async (_req, res) => {
   try {
     const stmt = db.prepare(
-      `SELECT id, full_name AS fullName, batch_number AS batchNumber, phone_number AS phoneNumber,
-              department, society_affiliation AS societyAffiliation, interests,
-              emergency_contact AS emergencyContact, dietary_preferences AS dietaryPreferences,
-              created_at AS createdAt
+      `SELECT id, full_name AS "fullName", batch_number AS "batchNumber", phone_number AS "phoneNumber",
+              department, society_affiliation AS "societyAffiliation", interests,
+              emergency_contact AS "emergencyContact", dietary_preferences AS "dietaryPreferences",
+              created_at AS "createdAt"
        FROM students
        ORDER BY created_at DESC`
     );
@@ -75,7 +77,7 @@ router.get('/', authenticate, async (_req, res) => {
     return res.json({ submissions });
   } catch (err) {
     console.error('Get students error:', err);
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 

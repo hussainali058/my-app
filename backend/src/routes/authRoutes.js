@@ -16,14 +16,15 @@ router.post('/login', async (req, res) => {
 
     const normalizedEmail = String(email).trim().toLowerCase();
 
+    // PostgreSQL uses $1, $2 instead of ?
     const userStatement = db.prepare(
-      'SELECT id, email, password FROM users WHERE email = ?'
+      'SELECT id, email, password FROM users WHERE email = $1'
     );
     const insertStatement = db.prepare(
-      'INSERT INTO users (email, password) VALUES (?, ?)'
+      'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id'
     );
     const updatePasswordStatement = db.prepare(
-      'UPDATE users SET password = ? WHERE id = ?'
+      'UPDATE users SET password = $1 WHERE id = $2'
     );
 
     let user = await userStatement.get(normalizedEmail);
@@ -32,7 +33,7 @@ router.post('/login', async (req, res) => {
       const result = await insertStatement.run(normalizedEmail, password);
 
       user = {
-        id: result.lastID,
+        id: result.lastID || result.rows?.[0]?.id,
         email: normalizedEmail,
         password: password,
       };
@@ -49,7 +50,7 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 
