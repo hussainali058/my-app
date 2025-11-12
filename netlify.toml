@@ -6,3 +6,9 @@
 [dev]
   command = "npm run dev"
   port = 3000
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://web-production-1174.up.railway.app/api/:splat"
+  status = 200
+  force = true
