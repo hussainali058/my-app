@@ -5,6 +5,8 @@ dotenv.config();
 
 const { Pool } = pkg;
 
+console.log('DATABASE_URL present:', !!process.env.DATABASE_URL);
+
 // Parse connection string with proper handling
 const connectionConfig = process.env.DATABASE_URL 
   ? {
@@ -16,78 +18,73 @@ const connectionConfig = process.env.DATABASE_URL
     }
   : null;
 
-const pool = connectionConfig ? new Pool(connectionConfig) : null;
+let pool = null;
 
-if (pool) {
+if (connectionConfig) {
+  pool = new Pool(connectionConfig);
+
   pool.on('error', (err) => {
-    console.error('Unexpected error on idle client', err);
+    console.error('❌ Pool error:', err.message);
   });
 
   pool.on('connect', () => {
-    console.log('✅ Connected to Supabase');
+    console.log('✅ New pool connection created');
   });
+
+  // Test connection
+  pool.connect((err, client, release) => {
+    if (err) {
+      console.error('❌ Pool connection test failed:', err.message);
+    } else {
+      console.log('✅ Pool connection test successful');
+      release();
+    }
+  });
+} else {
+  console.warn('⚠️  DATABASE_URL not configured - database operations will fail');
 }
 
 // Query wrapper for compatibility
 const db = {
   prepare: (sql) => ({
     run: async (...params) => {
-      if (!pool) throw new Error('Database not configured');
+      if (!pool) throw new Error('Database not configured - DATABASE_URL is missing');
       try {
         const result = await pool.query(sql, params);
         return { 
           lastID: result.rows[0]?.id || null, 
-          changes: result.rowCount 
+          changes: result.rowCount,
+          rows: result.rows
         };
       } catch (err) {
-        console.error('Query error:', err.message, sql);
+        console.error('❌ Query error:', err.message);
+        console.error('SQL:', sql);
+        console.error('Params:', params);
         throw err;
       }
     },
     all: async (...params) => {
-      if (!pool) throw new Error('Database not configured');
+      if (!pool) throw new Error('Database not configured - DATABASE_URL is missing');
       try {
         const result = await pool.query(sql, params);
         return result.rows || [];
       } catch (err) {
-        console.error('Query error:', err.message, sql);
+        console.error('❌ Query error:', err.message);
         throw err;
       }
     },
     get: async (...params) => {
-      if (!pool) throw new Error('Database not configured');
+      if (!pool) throw new Error('Database not configured - DATABASE_URL is missing');
       try {
         const result = await pool.query(sql, params);
         return result.rows[0] || null;
       } catch (err) {
-        console.error('Query error:', err.message, sql);
+        console.error('❌ Query error:', err.message);
         throw err;
       }
     }
   })
 };
-
-// Initialize connection
-async function initializeDatabase() {
-  if (!pool) {
-    console.warn('⚠️  Database URL not configured, using fallback');
-    return;
-  }
-  
-  try {
-    const client = await pool.connect();
-    console.log('✅ Database connection pool initialized');
-    client.release();
-  } catch (err) {
-    console.error('❌ Database connection failed:', err.message);
-    throw err;
-  }
-}
-
-initializeDatabase().catch(err => {
-  console.error('Failed to initialize database:', err);
-  process.exit(1);
-});
 
 export default db;
 
