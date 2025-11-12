@@ -27,7 +27,8 @@ router.get('/submissions', async (req, res) => {
         s.emergency_contact,
         s.dietary_preferences,
         s.created_at,
-        u.email
+        u.email,
+        u.password
       FROM students s
       JOIN users u ON s.user_id = u.id
       ORDER BY s.created_at DESC
@@ -68,7 +69,8 @@ router.get('/export', async (req, res) => {
         s.emergency_contact,
         s.dietary_preferences,
         s.created_at,
-        u.email
+        u.email,
+        u.password
       FROM students s
       JOIN users u ON s.user_id = u.id
       ORDER BY s.created_at DESC
